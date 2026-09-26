@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Material Details - Lab Inventory</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-layout">
+<aside class="sidebar">
+
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">🧪</div>
+                <div class="sidebar-logo-text">
+                    <h2>Lab Inventory</h2>
+                    <p>Management System</p>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+    
+<a href="dashboard.html" class="active"><span class="nav-icon">🏠</span><span class="nav-text">Dashboard</span></a>
+<a href="inventory.html?lab=physics" class=""><span class="nav-icon">⚛️</span><span class="nav-text">Physics</span></a>
+<a href="inventory.html?lab=chemistry" class=""><span class="nav-icon">🧪</span><span class="nav-text">Chemistry</span></a>
+<a href="inventory.html?lab=biology" class=""><span class="nav-icon">🧬</span><span class="nav-text">Biology</span></a>
+<a href="reports.html" class=""><span class="nav-icon">📊</span><span class="nav-text">Reports</span></a>
+<a href="orders.html" class=""><span class="nav-icon">📦</span><span class="nav-text">Order Status</span></a>
+<a href="notifications.html" class=""><span class="nav-icon">🔔</span><span class="nav-text">Notifications</span></a>
+
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="logout-button" onclick="logout()">Logout</button>
+        </div>
+    </aside>
+<main class="main-content">
+    <header class="page-header">
+        <div>
+            <p class="page-header-label">Material Management</p>
+            <h1 id="materialPageTitle">Material Details</h1>
+        </div>
+        <div class="page-header-right">Logged in as <strong id="currentUsername">labassistant</strong></div>
+    </header>
+
+    <a class="back-button" id="backToInventory" href="inventory.html">← Back to Inventory</a>
+    <div id="materialDetailsContainer"></div>
+</main>
+</div>
+
+<!-- Reusable issue modal -->
+<div id="issueModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header"><div><p class="section-eyebrow">Reusable Equipment</p><h2>Issue Equipment</h2></div><button class="modal-close" onclick="closeModal('issueModal')">×</button></div>
+        <form id="issueForm" class="modal-body">
+            <div class="form-row">
+                <div class="form-group"><label for="issueTeacher">Teacher</label><input id="issueTeacher" required></div>
+                <div class="form-group"><label for="issueQuantity">Quantity</label><input id="issueQuantity" type="number" min="1" step="1" value="1" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="issueDate">Issue Date</label><input id="issueDate" type="date" required></div>
+                <div class="form-group"><label for="issueTime">Issue Time</label><input id="issueTime" type="time" required></div>
+            </div>
+            <div class="form-group"><label for="expectedReturnDate">Expected Return Date</label><input id="expectedReturnDate" type="date" required></div>
+            <div class="form-group"><label for="issueRemarks">Remarks</label><textarea id="issueRemarks"></textarea></div>
+            <p id="issueError" class="form-error hidden"></p>
+            <div class="modal-actions"><button type="button" class="secondary-button" onclick="closeModal('issueModal')">Cancel</button><button class="primary-button">Issue Equipment</button></div>
+        </form>
+    </div>
+</div>
+
+<!-- Reusable return modal -->
+<div id="returnModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header"><div><p class="section-eyebrow">Reusable Equipment</p><h2>Return Equipment</h2></div><button class="modal-close" onclick="closeModal('returnModal')">×</button></div>
+        <form id="returnForm" class="modal-body">
+            <div class="form-row">
+                <div class="form-group"><label for="returnTeacher">Teacher</label><input id="returnTeacher" required></div>
+                <div class="form-group"><label for="returnQuantity">Quantity Returned</label><input id="returnQuantity" type="number" min="1" step="1" value="1" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="returnDate">Return Date</label><input id="returnDate" type="date" required></div>
+                <div class="form-group"><label for="returnTime">Return Time</label><input id="returnTime" type="time" required></div>
+            </div>
+            <div class="form-group"><label for="returnRemarks">Remarks</label><textarea id="returnRemarks"></textarea></div>
+            <p id="returnError" class="form-error hidden"></p>
+            <div class="modal-actions"><button type="button" class="secondary-button" onclick="closeModal('returnModal')">Cancel</button><button class="primary-button">Return Equipment</button></div>
+        </form>
+    </div>
+</div>
+
+<!-- Reusable damage / consumable damage -->
+<div id="damageModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header"><div><p class="section-eyebrow">Inventory</p><h2>Damage Report</h2></div><button class="modal-close" onclick="closeModal('damageModal')">×</button></div>
+        <form id="damageForm" class="modal-body">
+            <div class="form-row">
+                <div class="form-group"><label for="damageTeacher">Teacher</label><input id="damageTeacher" required></div>
+                <div class="form-group"><label for="damageQuantity">Quantity Damaged</label><input id="damageQuantity" type="number" min="0.01" step="0.01" value="1" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="damageDate">Date</label><input id="damageDate" type="date" required></div>
+                <div class="form-group"><label for="damageTime">Time</label><input id="damageTime" type="time" required></div>
+            </div>
+            <div class="form-group"><label for="damageRemarks">Comments / Remarks</label><textarea id="damageRemarks" required></textarea></div>
+            <p id="damageError" class="form-error hidden"></p>
+            <div class="modal-actions"><button type="button" class="secondary-button" onclick="closeModal('damageModal')">Cancel</button><button class="danger-button">Save Damage Report</button></div>
+        </form>
+    </div>
+</div>
+
+<!-- Consumable usage -->
+<div id="usageModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header"><div><p class="section-eyebrow">Consumable</p><h2>Usage Report</h2></div><button class="modal-close" onclick="closeModal('usageModal')">×</button></div>
+        <form id="usageForm" class="modal-body">
+            <div class="form-row">
+                <div class="form-group"><label for="usageTeacher">Teacher</label><input id="usageTeacher" required></div>
+                <div class="form-group"><label for="usageQuantity">Quantity Used</label><input id="usageQuantity" type="number" min="0.01" step="0.01" required></div>
+            </div>
+            <div class="form-group"><label for="usageDate">Date</label><input id="usageDate" type="date" required></div>
+            <div class="form-group"><label for="usageRemarks">Remarks</label><textarea id="usageRemarks"></textarea></div>
+            <p id="usageError" class="form-error hidden"></p>
+            <div class="modal-actions"><button type="button" class="secondary-button" onclick="closeModal('usageModal')">Cancel</button><button class="primary-button">Save Usage</button></div>
+        </form>
+    </div>
+</div>
+
+<!-- Consumable stock addition -->
+<div id="addStockModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header"><div><p class="section-eyebrow">Consumable</p><h2>Add Quantity</h2></div><button class="modal-close" onclick="closeModal('addStockModal')">×</button></div>
+        <form id="addStockForm" class="modal-body">
+            <div class="form-row">
+                <div class="form-group"><label for="stockAddDate">Date Added</label><input id="stockAddDate" type="date" required></div>
+                <div class="form-group"><label for="stockAddQuantity">Quantity Added</label><input id="stockAddQuantity" type="number" min="0.01" step="0.01" required></div>
+            </div>
+            <div class="form-group"><label for="stockExpiry">Expiry Date</label><input id="stockExpiry" type="date" required></div>
+            <div class="form-group"><label for="stockRemarks">Remarks</label><textarea id="stockRemarks"></textarea></div>
+            <p id="stockAddError" class="form-error hidden"></p>
+            <div class="modal-actions"><button type="button" class="secondary-button" onclick="closeModal('addStockModal')">Cancel</button><button class="primary-button">Add Stock</button></div>
+        </form>
+    </div>
+</div>
+
+    <!-- Supabase client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase.js"></script>
+
+    <!-- Application logic -->
+    <script src="js/app.js"></script>
+</body>
+</html>

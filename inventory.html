@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory - Lab Inventory</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-layout">
+<aside class="sidebar">
+
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">🧪</div>
+                <div class="sidebar-logo-text">
+                    <h2>Lab Inventory</h2>
+                    <p>Management System</p>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+    
+<a href="dashboard.html" class="active"><span class="nav-icon">🏠</span><span class="nav-text">Dashboard</span></a>
+<a href="inventory.html?lab=physics" class=""><span class="nav-icon">⚛️</span><span class="nav-text">Physics</span></a>
+<a href="inventory.html?lab=chemistry" class=""><span class="nav-icon">🧪</span><span class="nav-text">Chemistry</span></a>
+<a href="inventory.html?lab=biology" class=""><span class="nav-icon">🧬</span><span class="nav-text">Biology</span></a>
+<a href="reports.html" class=""><span class="nav-icon">📊</span><span class="nav-text">Reports</span></a>
+<a href="orders.html" class=""><span class="nav-icon">📦</span><span class="nav-text">Order Status</span></a>
+<a href="notifications.html" class=""><span class="nav-icon">🔔</span><span class="nav-text">Notifications</span></a>
+
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="logout-button" onclick="logout()">Logout</button>
+        </div>
+    </aside>
+<main class="main-content">
+    <header class="page-header">
+        <div>
+            <p class="page-header-label">Laboratory Inventory</p>
+            <h1 id="labTitle">Laboratory Inventory</h1>
+        </div>
+        <div class="page-header-right">Logged in as <strong id="currentUsername">labassistant</strong></div>
+    </header>
+
+    <section class="inventory-toolbar">
+        <div>
+            <p class="section-eyebrow">Materials</p>
+            <h2>Laboratory Materials</h2>
+            <p class="toolbar-description">Search, add, edit and manage materials.</p>
+        </div>
+        <div class="toolbar-actions">
+            <input type="text" id="inventorySearch" class="search-input" placeholder="Search materials..." autocomplete="off">
+            <select id="inventoryTypeFilter" class="select-input">
+                <option value="all">All Types</option>
+                <option value="reusable">Reusable</option>
+                <option value="consumable">Consumable</option>
+            </select>
+            <button type="button" class="primary-button" onclick="openAddMaterialForm()">＋ Add Material</button>
+        </div>
+    </section>
+
+    <div id="inventoryMessage"></div>
+    <section><div id="inventoryContainer" class="inventory-grid"></div></section>
+</main>
+</div>
+
+<div id="addMaterialModal" class="modal-overlay hidden">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div><p class="section-eyebrow">Inventory</p><h2 id="materialFormTitle">Add New Material</h2></div>
+            <button type="button" class="modal-close" onclick="closeAddMaterialForm()">×</button>
+        </div>
+        <form id="addMaterialForm" class="modal-body">
+            <input type="hidden" id="editingMaterialId">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="newMaterialLab">Laboratory</label>
+                    <select id="newMaterialLab" required>
+                        <option value="physics">Physics</option>
+                        <option value="chemistry">Chemistry</option>
+                        <option value="biology">Biology</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="newMaterialType">Material Type</label>
+                    <select id="newMaterialType" required>
+                        <option value="reusable">Reusable</option>
+                        <option value="consumable">Consumable / Perishable</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="newMaterialName">Material Name</label>
+                <input type="text" id="newMaterialName" required placeholder="e.g. Digital Multimeter">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="newMaterialCategory">Category</label>
+                    <input type="text" id="newMaterialCategory" required placeholder="e.g. Measuring Instruments">
+                </div>
+                <div class="form-group">
+                    <label for="newMaterialUnit">Unit</label>
+                    <input type="text" id="newMaterialUnit" required placeholder="pieces, kg, litres...">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="newMaterialQuantity">Quantity Available</label>
+                    <input type="number" id="newMaterialQuantity" min="0" step="0.01" required value="0">
+                </div>
+                <div class="form-group">
+                    <label for="newMaterialMinimum">Minimum Stock Level</label>
+                    <input type="number" id="newMaterialMinimum" min="0" step="0.01" required value="0">
+                </div>
+            </div>
+
+            <div class="form-group" id="newExpiryGroup">
+                <label for="newMaterialExpiry">Date of Expiry</label>
+                <input type="date" id="newMaterialExpiry">
+                <small>Required for consumable/perishable materials.</small>
+            </div>
+
+            <p id="materialFormError" class="form-error hidden"></p>
+
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" onclick="closeAddMaterialForm()">Cancel</button>
+                <button type="submit" class="primary-button">Save Material</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+    <!-- Supabase client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/supabase.js"></script>
+
+    <!-- Application logic -->
+    <script src="js/app.js"></script>
+</body>
+</html>
