@@ -10,6 +10,8 @@
    ============================================================ */
 
 const APP = {
+    // The visible username is kept as "labassistant" for this prototype.
+    // Supabase Auth uses this technical email behind the scenes.
     authEmail: "labassistant@labinventory.local",
     labs: ["physics", "chemistry", "biology"]
 };
@@ -195,13 +197,11 @@ const DEFAULT_MATERIALS = [
     }
 ];
 
-
 /* ============================================================
-   PAGE STARTUP
+   START APPLICATION
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", async () => {
-
     const allowed = await protectPages();
 
     if (!allowed) return;
@@ -209,27 +209,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     await initializeData();
 
     setCurrentUsername();
-
     bindGlobalEvents();
-
     initializePage();
 });
-
 
 /* ============================================================
    LOGIN / SESSION
    ============================================================ */
 
 async function isLoggedIn() {
+    const { data, error } = await supabaseClient.auth.getSession();
 
-    const { data } = await supabaseClient.auth.getSession();
+    if (error) {
+        console.error("Session error:", error);
+        return false;
+    }
 
     return !!data.session;
 }
 
-
 async function protectPages() {
-
     const page =
         location.pathname.split("/").pop() || "index.html";
 
@@ -245,60 +244,36 @@ async function protectPages() {
     const loggedIn = await isLoggedIn();
 
     if (protectedPages.includes(page) && !loggedIn) {
-
         window.location.href = "index.html";
-
         return false;
     }
 
     if (page === "index.html" && loggedIn) {
-
         window.location.href = "dashboard.html";
-
         return false;
     }
 
     return true;
 }
 
-
-/* ============================================================
-   GLOBAL EVENTS
-   ============================================================ */
-
 function bindGlobalEvents() {
-
-    const loginForm =
-        document.getElementById("loginForm");
+    const loginForm = document.getElementById("loginForm");
 
     if (loginForm) {
-
-        loginForm.addEventListener(
-            "submit",
-            handleLogin
-        );
+        loginForm.addEventListener("submit", handleLogin);
     }
 
-
     document.addEventListener("click", (event) => {
-
         const overlay =
             event.target.closest(".modal-overlay");
 
-        if (
-            overlay &&
-            event.target === overlay
-        ) {
-
+        if (overlay && event.target === overlay) {
             overlay.classList.add("hidden");
         }
     });
 
-
     document.addEventListener("keydown", (event) => {
-
         if (event.key === "Escape") {
-
             document
                 .querySelectorAll(".modal-overlay")
                 .forEach(m => m.classList.add("hidden"));
@@ -306,13 +281,7 @@ function bindGlobalEvents() {
     });
 }
 
-
-/* ============================================================
-   LOGIN
-   ============================================================ */
-
 async function handleLogin(event) {
-
     event.preventDefault();
 
     const username =
@@ -324,14 +293,12 @@ async function handleLogin(event) {
     const error =
         document.getElementById("loginError");
 
-
-    // Username "labassistant" is converted
-    // to the Supabase authentication email.
+    // Keep the original username UX while authenticating
+    // through Supabase.
     const email =
         username.includes("@")
             ? username
             : APP.authEmail;
-
 
     const { error: authError } =
         await supabaseClient.auth.signInWithPassword({
@@ -339,8 +306,8 @@ async function handleLogin(event) {
             password
         });
 
-
     if (authError) {
+        console.error("Login error:", authError);
 
         error.textContent =
             "Incorrect username or password.";
@@ -350,67 +317,50 @@ async function handleLogin(event) {
         return;
     }
 
-
-    window.location.href =
-        "dashboard.html";
+    window.location.href = "dashboard.html";
 }
 
-
-/* ============================================================
-   LOGOUT
-   ============================================================ */
-
 async function logout() {
-
     await supabaseClient.auth.signOut();
 
     DB.materials = [];
     DB.transactions = [];
     DB.orders = [];
 
-    window.location.href =
-        "index.html";
+    window.location.href = "index.html";
 }
 
-
-/* ============================================================
-   CURRENT USER
-   ============================================================ */
-
 async function setCurrentUsername() {
-
-    const { data } =
+    const { data, error } =
         await supabaseClient.auth.getUser();
 
-    const username =
-        data.user?.user_metadata?.username ||
-        "labassistant";
+    if (error) {
+        console.error("Could not get user:", error);
+    }
 
+    const username =
+        data?.user?.user_metadata?.username ||
+        "labassistant";
 
     document
         .querySelectorAll("#currentUsername")
         .forEach(el => {
-
             el.textContent = username;
         });
 }
-
 
 /* ============================================================
    SUPABASE DATA STORAGE
    ============================================================ */
 
 async function initializeData() {
-
     if (DB.initialized) return;
-
 
     const [
         materialsResult,
         transactionsResult,
         ordersResult
     ] = await Promise.all([
-
         supabaseClient
             .from("materials")
             .select("*")
@@ -419,27 +369,23 @@ async function initializeData() {
         supabaseClient
             .from("transactions")
             .select("*")
-            .order(
-                "created_at",
-                { ascending: true }
-            ),
+            .order("created_at", {
+                ascending: true
+            }),
 
         supabaseClient
             .from("orders")
             .select("*")
-            .order(
-                "created_at",
-                { ascending: true }
-            )
+            .order("created_at", {
+                ascending: true
+            })
     ]);
-
 
     if (
         materialsResult.error ||
         transactionsResult.error ||
         ordersResult.error
     ) {
-
         console.error(
             "Supabase load error:",
             materialsResult.error ||
@@ -448,100 +394,82 @@ async function initializeData() {
         );
 
         alert(
-            "The app could not load its Supabase data. Check the SQL setup and RLS policies, then reload."
+            "The app could not load its Supabase data. " +
+            "Check the SQL setup and RLS policies, then reload."
         );
 
         return;
     }
-
 
     DB.materials =
         normalizeMaterials(
             materialsResult.data || []
         );
 
-
     DB.transactions =
         (transactionsResult.data || [])
             .map(fromDbTransaction);
-
 
     DB.orders =
         (ordersResult.data || [])
             .map(fromDbOrder);
 
+    /*
+       If the database is empty, seed it from the
+       existing sample data once.
+    */
 
-    // Seed the database if there are no materials.
     if (!DB.materials.length) {
-
-        let initial =
-            DEFAULT_MATERIALS;
-
+        let initial = DEFAULT_MATERIALS;
 
         try {
-
             const response =
                 await fetch(
                     "data/materials.json",
-                    { cache: "no-store" }
+                    {
+                        cache: "no-store"
+                    }
                 );
 
-
             if (response.ok) {
-
                 const json =
                     await response.json();
-
 
                 if (
                     Array.isArray(json) &&
                     json.length
                 ) {
-
                     initial = json;
                 }
             }
-
         } catch (error) {
-
-            // Built-in DEFAULT_MATERIALS is used.
+            // Built-in DEFAULT_MATERIALS is the fallback.
+            console.warn(
+                "Could not load materials.json. " +
+                "Using built-in sample data."
+            );
         }
-
 
         DB.materials =
             normalizeMaterials(initial);
 
-
-        await saveMaterials(
-            DB.materials
-        );
+        await saveMaterials(DB.materials);
     }
-
 
     DB.initialized = true;
 }
 
-
-/* ============================================================
-   NORMALIZE MATERIALS
-   ============================================================ */
-
 function normalizeMaterials(items) {
-
     return items.map(item => {
-
         const m = { ...item };
-
 
         m.type =
             String(
                 m.type || "reusable"
             ).toLowerCase();
 
-
         m.quantity =
             Number(m.quantity || 0);
-
 
         m.minimumStock =
             Number(
@@ -550,14 +478,12 @@ function normalizeMaterials(items) {
                 0
             );
 
-
         m.totalQuantity =
             Number(
                 m.total_quantity ??
                 m.totalQuantity ??
                 m.quantity
             );
-
 
         m.availableQuantity =
             Number(
@@ -566,14 +492,12 @@ function normalizeMaterials(items) {
                 m.quantity
             );
 
-
         m.issuedQuantity =
             Number(
                 m.issued_quantity ??
                 m.issuedQuantity ??
                 0
             );
-
 
         m.damagedQuantity =
             Number(
@@ -582,25 +506,25 @@ function normalizeMaterials(items) {
                 0
             );
 
-
         m.expiryDate =
             m.expiry_date ??
             m.expiryDate ??
             null;
 
-
         m.status =
             m.status || "active";
-
 
         m.batches =
             Array.isArray(m.batches)
                 ? m.batches
                 : [];
 
+        /*
+           Consumable materials do not have
+           issued equipment quantities.
+        */
 
         if (m.type === "consumable") {
-
             m.totalQuantity =
                 Number(m.quantity || 0);
 
@@ -608,30 +532,17 @@ function normalizeMaterials(items) {
                 Number(m.quantity || 0);
         }
 
-
         return m;
     });
 }
 
-
-/* ============================================================
-   MATERIAL → SUPABASE
-   ============================================================ */
-
 function toDbMaterial(m) {
-
     return {
-
         id: m.id,
-
         name: m.name,
-
         lab: m.lab,
-
         category: m.category,
-
         type: m.type,
-
         unit: m.unit,
 
         quantity:
@@ -665,58 +576,40 @@ function toDbMaterial(m) {
     };
 }
 
-
-/* ============================================================
-   SAVE MATERIALS
-   ============================================================ */
-
 async function saveMaterials(materials) {
-
     DB.materials =
         normalizeMaterials(materials);
 
-
     const rows =
-        DB.materials.map(
-            toDbMaterial
-        );
-
+        DB.materials.map(toDbMaterial);
 
     const { error } =
         await supabaseClient
             .from("materials")
-            .upsert(
-                rows,
-                { onConflict: "id" }
-            );
-
+            .upsert(rows, {
+                onConflict: "id"
+            });
 
     if (error) {
-
         console.error(
             "Supabase material save error:",
             error
         );
+
+        alert(
+            "The material could not be saved to Supabase."
+        );
     }
 }
 
-
 function getMaterials() {
-
     return normalizeMaterials(
         DB.materials
     );
 }
 
-
-/* ============================================================
-   TRANSACTIONS
-   ============================================================ */
-
 function toDbTransaction(t) {
-
     return {
-
         id: t.id,
 
         material_id:
@@ -761,32 +654,36 @@ function toDbTransaction(t) {
     };
 }
 
-
 function fromDbTransaction(t) {
-
     return {
-
         id: t.id,
 
         materialId:
             t.material_id,
 
-        lab: t.lab,
+        lab:
+            t.lab,
 
-        type: t.type,
+        type:
+            t.type,
 
-        date: t.date,
+        date:
+            t.date,
 
-        time: t.time,
+        time:
+            t.time,
 
-        teacher: t.teacher,
+        teacher:
+            t.teacher,
 
         quantity:
             Number(t.quantity || 0),
 
-        status: t.status,
+        status:
+            t.status,
 
-        remarks: t.remarks,
+        remarks:
+            t.remarks,
 
         expectedReturnDate:
             t.expected_return_date,
@@ -802,36 +699,29 @@ function fromDbTransaction(t) {
     };
 }
 
-
 function getTransactions() {
-
     return DB.transactions.slice();
 }
 
-
 async function saveTransactions(items) {
-
     DB.transactions =
         items.slice();
-
 
     const rows =
         DB.transactions.map(
             toDbTransaction
         );
 
+    if (!rows.length) return;
 
     const { error } =
         await supabaseClient
             .from("transactions")
-            .upsert(
-                rows,
-                { onConflict: "id" }
-            );
-
+            .upsert(rows, {
+                onConflict: "id"
+            });
 
     if (error) {
-
         console.error(
             "Supabase transaction save error:",
             error
@@ -839,15 +729,8 @@ async function saveTransactions(items) {
     }
 }
 
-
-/* ============================================================
-   ORDERS
-   ============================================================ */
-
 function toDbOrder(o) {
-
     return {
-
         id: o.id,
 
         material_id:
@@ -874,11 +757,8 @@ function toDbOrder(o) {
     };
 }
 
-
 function fromDbOrder(o) {
-
     return {
-
         id: o.id,
 
         materialId:
@@ -904,36 +784,27 @@ function fromDbOrder(o) {
     };
 }
 
-
 function getOrders() {
-
     return DB.orders.slice();
 }
 
-
 async function saveOrders(items) {
-
     DB.orders =
         items.slice();
 
-
     const rows =
-        DB.orders.map(
-            toDbOrder
-        );
+        DB.orders.map(toDbOrder);
 
+    if (!rows.length) return;
 
     const { error } =
         await supabaseClient
             .from("orders")
-            .upsert(
-                rows,
-                { onConflict: "id" }
-            );
-
+            .upsert(rows, {
+                onConflict: "id"
+            });
 
     if (error) {
-
         console.error(
             "Supabase order save error:",
             error
@@ -941,37 +812,25 @@ async function saveOrders(items) {
     }
 }
 
-
-/* ============================================================
-   HELPER FUNCTIONS
-   ============================================================ */
-
 function generateId(prefix) {
-
     return `${prefix}-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 7)}`;
 }
 
-
 function todayISO() {
-
     return new Date()
         .toISOString()
         .slice(0, 10);
 }
 
-
 function timeNow() {
-
     return new Date()
         .toTimeString()
         .slice(0, 5);
 }
 
-
 function addDays(dateString, days) {
-
     const date =
         new Date(
             `${dateString}T00:00:00`
@@ -986,9 +845,7 @@ function addDays(dateString, days) {
         .slice(0, 10);
 }
 
-
 function formatDate(value) {
-
     if (!value) return "—";
 
     const date =
@@ -996,12 +853,7 @@ function formatDate(value) {
             `${value}T00:00:00`
         );
 
-    if (
-        Number.isNaN(
-            date.getTime()
-        )
-    ) {
-
+    if (Number.isNaN(date.getTime())) {
         return value;
     }
 
@@ -1015,22 +867,20 @@ function formatDate(value) {
     );
 }
 
-
 function number(value) {
-
     const n = Number(value);
 
-    return Number.isInteger(n)
-        ? String(n)
-        : n
-            .toFixed(2)
-            .replace(/0+$/, "")
-            .replace(/\.$/, "");
+    if (Number.isInteger(n)) {
+        return String(n);
+    }
+
+    return n
+        .toFixed(2)
+        .replace(/0+$/, "")
+        .replace(/\.$/, "");
 }
 
-
 function escapeHTML(value) {
-
     return String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
@@ -1039,26 +889,20 @@ function escapeHTML(value) {
         .replaceAll("'", "&#039;");
 }
 
-
 function labName(lab) {
-
     return lab
         ? lab.charAt(0).toUpperCase() +
           lab.slice(1)
         : "—";
 }
 
-
 function typeName(type) {
-
     return type === "consumable"
         ? "Consumable / Perishable"
         : "Reusable";
 }
 
-
 function stockValue(material) {
-
     return material.type === "reusable"
         ? Number(
             material.availableQuantity || 0
@@ -1068,18 +912,14 @@ function stockValue(material) {
         );
 }
 
-
 function isLowStock(material) {
-
-    return stockValue(material) <=
-        Number(
-            material.minimumStock || 0
-        );
+    return (
+        stockValue(material) <=
+        Number(material.minimumStock || 0)
+    );
 }
 
-
 function daysUntil(dateString) {
-
     if (!dateString) return null;
 
     const today =
@@ -1098,19 +938,12 @@ function daysUntil(dateString) {
     );
 }
 
-
 /* ============================================================
    NAVIGATION
    ============================================================ */
 
 function openLab(labNameValue) {
-
-    if (
-        !APP.labs.includes(
-            labNameValue
-        )
-    ) {
-
+    if (!APP.labs.includes(labNameValue)) {
         return;
     }
 
@@ -1120,83 +953,53 @@ function openLab(labNameValue) {
         )}`;
 }
 
-
 /* ============================================================
    PAGE INITIALIZATION
    ============================================================ */
 
 function initializePage() {
-
     const page =
         location.pathname
             .split("/")
             .pop();
 
-
-    if (
-        page === "dashboard.html"
-    ) {
-
+    if (page === "dashboard.html") {
         initDashboard();
     }
 
-
-    if (
-        page === "inventory.html"
-    ) {
-
+    if (page === "inventory.html") {
         initInventory();
     }
 
-
-    if (
-        page === "material.html"
-    ) {
-
+    if (page === "material.html") {
         initMaterial();
     }
 
-
-    if (
-        page === "reports.html"
-    ) {
-
+    if (page === "reports.html") {
         initReports();
     }
 
-
-    if (
-        page === "orders.html"
-    ) {
-
+    if (page === "orders.html") {
         initOrders();
     }
 
-
-    if (
-        page === "notifications.html"
-    ) {
-
+    if (page === "notifications.html") {
         initNotifications();
     }
 }
-
 
 /* ============================================================
    DASHBOARD
    ============================================================ */
 
 function initDashboard() {
-
     const materials =
         getMaterials();
-
 
     setText(
         "totalMaterials",
         materials.length
     );
-
 
     setText(
         "lowStockMaterials",
@@ -1205,14 +1008,12 @@ function initDashboard() {
         ).length
     );
 
-
     setText(
         "reusableMaterials",
         materials.filter(
             m => m.type === "reusable"
         ).length
     );
-
 
     setText(
         "consumableMaterials",
@@ -1221,19 +1022,15 @@ function initDashboard() {
         ).length
     );
 
-
     const container =
         document.getElementById(
             "dashboardNotifications"
         );
 
-
     if (container) {
-
         const notifications =
             buildNotifications()
                 .slice(0, 5);
-
 
         container.innerHTML =
             notifications.length
@@ -1244,25 +1041,20 @@ function initDashboard() {
     }
 }
 
-
 function setText(id, value) {
-
     const el =
         document.getElementById(id);
 
     if (el) {
-
         el.textContent = value;
     }
 }
-
 
 /* ============================================================
    INVENTORY PAGE
    ============================================================ */
 
 function initInventory() {
-
     const params =
         new URLSearchParams(
             location.search
@@ -1271,119 +1063,103 @@ function initInventory() {
     const lab =
         params.get("lab");
 
-
     if (!APP.labs.includes(lab)) {
+        const title =
+            document.getElementById(
+                "labTitle"
+            );
 
-        document.getElementById(
-            "labTitle"
-        ).textContent =
-            "Select a Laboratory";
+        if (title) {
+            title.textContent =
+                "Select a Laboratory";
+        }
 
         renderInventory([]);
-
         return;
     }
-
 
     document.title =
         `${labName(lab)} Inventory - Lab Inventory`;
 
+    const title =
+        document.getElementById(
+            "labTitle"
+        );
 
-    document.getElementById(
-        "labTitle"
-    ).textContent =
-        `${labName(lab)} Laboratory`;
-
+    if (title) {
+        title.textContent =
+            `${labName(lab)} Laboratory`;
+    }
 
     const labSelect =
         document.getElementById(
             "newMaterialLab"
         );
 
-
     if (labSelect) {
-
         labSelect.value = lab;
     }
-
 
     const search =
         document.getElementById(
             "inventorySearch"
         );
 
-
     const typeFilter =
         document.getElementById(
             "inventoryTypeFilter"
         );
 
-
     if (search) {
-
         search.addEventListener(
             "input",
             renderCurrentInventory
         );
     }
 
-
     if (typeFilter) {
-
         typeFilter.addEventListener(
             "change",
             renderCurrentInventory
         );
     }
 
-
     const form =
         document.getElementById(
             "addMaterialForm"
         );
 
-
     if (form) {
-
         form.addEventListener(
             "submit",
             saveMaterialFromForm
         );
     }
 
-
     const type =
         document.getElementById(
             "newMaterialType"
         );
 
-
     if (type) {
-
         type.addEventListener(
             "change",
             updateExpiryVisibility
         );
     }
 
-
     updateExpiryVisibility();
-
     renderCurrentInventory();
 }
 
-
 function renderCurrentInventory() {
-
     const params =
         new URLSearchParams(
             location.search
         );
 
-
     const lab =
         params.get("lab");
-
 
     const search =
         (
@@ -1394,12 +1170,10 @@ function renderCurrentInventory() {
             .trim()
             .toLowerCase();
 
-
     const type =
         document.getElementById(
             "inventoryTypeFilter"
         )?.value || "all";
-
 
     let materials =
         getMaterials().filter(
@@ -1408,251 +1182,180 @@ function renderCurrentInventory() {
                 m.status !== "deleted"
         );
 
-
     if (type !== "all") {
-
         materials =
             materials.filter(
                 m => m.type === type
             );
     }
 
-
     if (search) {
-
         materials =
-            materials.filter(
-                m =>
-                    [
-                        m.name,
-                        m.category,
-                        m.unit,
-                        m.id
-                    ].some(
-                        v =>
-                            String(v || "")
-                                .toLowerCase()
-                                .includes(search)
-                    )
+            materials.filter(m =>
+                [
+                    m.name,
+                    m.category,
+                    m.unit,
+                    m.id
+                ].some(v =>
+                    String(v || "")
+                        .toLowerCase()
+                        .includes(search)
+                )
             );
     }
-
 
     renderInventory(materials);
 }
 
-
 function renderInventory(materials) {
-
     const container =
         document.getElementById(
             "inventoryContainer"
         );
 
-
     if (!container) return;
 
-
     if (!materials.length) {
-
         container.innerHTML = `
             <div class="empty-state full-width">
                 <div class="empty-state-icon">📦</div>
                 <h3>No materials found</h3>
-                <p>Try another search or add a new material.</p>
+                <p>No materials match the current filters.</p>
             </div>
         `;
 
         return;
     }
 
-
     container.innerHTML =
-        materials
-            .map(materialCardHTML)
-            .join("");
-}
+        materials.map(material => {
+            const stock =
+                stockValue(material);
 
+            const low =
+                isLowStock(material);
 
-function materialCardHTML(m) {
+            return `
+                <article class="inventory-card">
 
-    const stock =
-        stockValue(m);
+                    <div class="inventory-card-top">
 
+                        <div>
+                            <span class="type-badge">
+                                ${escapeHTML(
+                                    typeName(
+                                        material.type
+                                    )
+                                )}
+                            </span>
 
-    const low =
-        isLowStock(m);
+                            <h3>
+                                ${escapeHTML(
+                                    material.name
+                                )}
+                            </h3>
 
+                            <p>
+                                ${escapeHTML(
+                                    material.category
+                                )}
+                            </p>
+                        </div>
 
-    const expiry =
-        m.type === "consumable"
-            ? expiryStatus(
-                m.expiryDate
-            )
-            : null;
-
-
-    return `
-        <article class="material-card">
-
-            <div class="material-card-top">
-
-                <span class="type-badge">
-                    ${escapeHTML(
-                        typeName(m.type)
-                    )}
-                </span>
-
-                <span class="stock-badge ${
-                    low
-                        ? "stock-low"
-                        : "stock-ok"
-                }">
-
-                    ${
-                        low
-                            ? "Low Stock"
-                            : "In Stock"
-                    }
-
-                </span>
-
-            </div>
-
-            <h3>
-                ${escapeHTML(m.name)}
-            </h3>
-
-            <p class="material-category">
-                ${escapeHTML(m.category)}
-            </p>
-
-            <div class="material-card-stats">
-
-                <div>
-                    <span>Available</span>
-
-                    <strong>
-                        ${number(stock)}
-                        ${escapeHTML(m.unit)}
-                    </strong>
-                </div>
-
-                <div>
-                    <span>Minimum</span>
-
-                    <strong>
-                        ${number(
-                            m.minimumStock
-                        )}
-                        ${escapeHTML(m.unit)}
-                    </strong>
-                </div>
-
-            </div>
-
-            ${
-                m.type === "reusable"
-
-                    ? `
-                        <p class="small-muted">
-                            Total:
-                            ${number(
-                                m.totalQuantity
-                            )}
-
-                            · Issued:
-                            ${number(
-                                m.issuedQuantity
-                            )}
-
-                            · Damaged:
-                            ${number(
-                                m.damagedQuantity
-                            )}
-                        </p>
-                    `
-
-                    : `
-                        <p class="expiry-line ${
-                            expiry?.class || ""
+                        <div class="inventory-stock ${
+                            low
+                                ? "stock-low"
+                                : "stock-good"
                         }">
+                            <strong>
+                                ${number(stock)}
+                            </strong>
 
-                            Expiry:
-                            ${escapeHTML(
-                                formatDate(
-                                    m.expiryDate
-                                )
-                            )}
+                            <span>
+                                ${escapeHTML(
+                                    material.unit
+                                )}
+                            </span>
+                        </div>
 
-                            ${
-                                expiry?.label
-                                    ? ` · ${expiry.label}`
-                                    : ""
-                            }
+                    </div>
 
-                        </p>
-                    `
-            }
+                    <div class="inventory-card-details">
 
-            <a
-                class="card-action"
-                href="material.html?id=${encodeURIComponent(
-                    m.id
-                )}"
-            >
-                View Details →
-            </a>
+                        <div>
+                            <span>Material ID</span>
+                            <strong>
+                                ${escapeHTML(
+                                    material.id
+                                )}
+                            </strong>
+                        </div>
 
-        </article>
-    `;
+                        <div>
+                            <span>Minimum Stock</span>
+                            <strong>
+                                ${number(
+                                    material.minimumStock
+                                )}
+                                ${escapeHTML(
+                                    material.unit
+                                )}
+                            </strong>
+                        </div>
+
+                        <div>
+                            <span>Status</span>
+                            <strong class="${
+                                low
+                                    ? "text-danger"
+                                    : "text-success"
+                            }">
+                                ${
+                                    low
+                                        ? "Low Stock"
+                                        : "Available"
+                                }
+                            </strong>
+                        </div>
+
+                    </div>
+
+                    <div class="inventory-card-actions">
+
+                        <a
+                            class="card-action"
+                            href="material.html?id=${encodeURIComponent(
+                                material.id
+                            )}"
+                        >
+                            View Details
+                        </a>
+
+                        <button
+                            class="secondary-button"
+                            onclick="editMaterial('${escapeHTML(
+                                material.id
+                            )}')"
+                        >
+                            Edit
+                        </button>
+
+                        <button
+                            class="danger-outline-button"
+                            onclick="deleteMaterial('${escapeHTML(
+                                material.id
+                            )}')"
+                        >
+                            Delete
+                        </button>
+
+                    </div>
+
+                </article>
+            `;
+        }).join("");
 }
-
-
-function expiryStatus(date) {
-
-    if (!date) {
-
-        return {
-            class: "expiry-warning",
-            label: "No expiry date"
-        };
-    }
-
-
-    const days =
-        daysUntil(date);
-
-
-    if (days < 0) {
-
-        return {
-            class: "expiry-danger",
-            label: "Expired"
-        };
-    }
-
-
-    if (days <= 30) {
-
-        return {
-            class: "expiry-warning",
-            label:
-                `${days} day${
-                    days === 1
-                        ? ""
-                        : "s"
-                } left`
-        };
-    }
-
-
-    return {
-        class: "expiry-ok",
-        label: "Valid"
-    };
-}
-
 
 /* ============================================================
    ADD / EDIT / DELETE MATERIAL
@@ -1661,111 +1364,146 @@ function expiryStatus(date) {
 function openAddMaterialForm(
     materialId = null
 ) {
-
     const modal =
         document.getElementById(
             "addMaterialModal"
         );
 
-
     if (!modal) return;
-
 
     const form =
         document.getElementById(
             "addMaterialForm"
         );
 
+    if (!form) return;
 
     form.reset();
 
+    const editing =
+        document.getElementById(
+            "editingMaterialId"
+        );
 
-    document.getElementById(
-        "editingMaterialId"
-    ).value =
-        materialId || "";
+    if (editing) {
+        editing.value =
+            materialId || "";
+    }
 
+    const title =
+        document.getElementById(
+            "materialFormTitle"
+        );
 
-    document.getElementById(
-        "materialFormTitle"
-    ).textContent =
-        materialId
-            ? "Edit Material"
-            : "Add New Material";
-
+    if (title) {
+        title.textContent =
+            materialId
+                ? "Edit Material"
+                : "Add New Material";
+    }
 
     const params =
         new URLSearchParams(
             location.search
         );
 
+    const lab =
+        document.getElementById(
+            "newMaterialLab"
+        );
 
-    document.getElementById(
-        "newMaterialLab"
-    ).value =
-        params.get("lab") ||
-        "physics";
-
+    if (lab) {
+        lab.value =
+            params.get("lab") ||
+            "physics";
+    }
 
     if (materialId) {
-
         const m =
             getMaterials().find(
                 x => x.id === materialId
             );
 
-
         if (!m) return;
 
+        const labField =
+            document.getElementById(
+                "newMaterialLab"
+            );
 
-        document.getElementById(
-            "newMaterialLab"
-        ).value =
-            m.lab;
+        const nameField =
+            document.getElementById(
+                "newMaterialName"
+            );
 
+        const categoryField =
+            document.getElementById(
+                "newMaterialCategory"
+            );
 
-        document.getElementById(
-            "newMaterialName"
-        ).value =
-            m.name;
+        const typeField =
+            document.getElementById(
+                "newMaterialType"
+            );
 
+        const unitField =
+            document.getElementById(
+                "newMaterialUnit"
+            );
 
-        document.getElementById(
-            "newMaterialCategory"
-        ).value =
-            m.category;
+        const quantityField =
+            document.getElementById(
+                "newMaterialQuantity"
+            );
 
+        const minimumField =
+            document.getElementById(
+                "newMaterialMinimum"
+            );
 
-        document.getElementById(
-            "newMaterialType"
-        ).value =
-            m.type;
+        const expiryField =
+            document.getElementById(
+                "newMaterialExpiry"
+            );
 
+        if (labField) {
+            labField.value = m.lab;
+        }
 
-        document.getElementById(
-            "newMaterialUnit"
-        ).value =
-            m.unit;
+        if (nameField) {
+            nameField.value = m.name;
+        }
 
+        if (categoryField) {
+            categoryField.value =
+                m.category;
+        }
 
-        document.getElementById(
-            "newMaterialQuantity"
-        ).value =
-            stockValue(m);
+        if (typeField) {
+            typeField.value =
+                m.type;
+        }
 
+        if (unitField) {
+            unitField.value =
+                m.unit;
+        }
 
-        document.getElementById(
-            "newMaterialMinimum"
-        ).value =
-            m.minimumStock;
+        if (quantityField) {
+            quantityField.value =
+                stockValue(m);
+        }
 
+        if (minimumField) {
+            minimumField.value =
+                m.minimumStock;
+        }
 
-        document.getElementById(
-            "newMaterialExpiry"
-        ).value =
-            m.expiryDate || "";
+        if (expiryField) {
+            expiryField.value =
+                m.expiryDate || "";
+        }
     }
-
 
     updateExpiryVisibility();
 
@@ -1773,266 +1511,205 @@ function openAddMaterialForm(
         "materialFormError"
     );
 
-
     modal.classList.remove(
         "hidden"
     );
 }
 
-
 function closeAddMaterialForm() {
-
     document
         .getElementById(
             "addMaterialModal"
         )
-        ?.classList.add(
-            "hidden"
-        );
+        ?.classList.add("hidden");
 }
 
-
 function updateExpiryVisibility() {
-
     const type =
         document.getElementById(
             "newMaterialType"
         )?.value;
-
 
     const group =
         document.getElementById(
             "newExpiryGroup"
         );
 
-
     const input =
         document.getElementById(
             "newMaterialExpiry"
         );
 
-
-    if (!group || !input) return;
-
+    if (!group || !input) {
+        return;
+    }
 
     const show =
         type === "consumable";
-
 
     group.classList.toggle(
         "hidden",
         !show
     );
 
-
-    input.required =
-        show;
+    input.required = show;
 }
 
-
-/* ============================================================
-   SAVE MATERIAL FORM
-   ============================================================ */
-
-function saveMaterialFromForm(event) {
-
+async function saveMaterialFromForm(event) {
     event.preventDefault();
-
 
     const idBeingEdited =
         document.getElementById(
             "editingMaterialId"
-        ).value;
-
+        )?.value;
 
     const lab =
         document.getElementById(
             "newMaterialLab"
-        ).value;
-
+        )?.value;
 
     const type =
         document.getElementById(
             "newMaterialType"
-        ).value;
-
+        )?.value;
 
     const quantity =
         Number(
             document.getElementById(
                 "newMaterialQuantity"
-            ).value
+            )?.value
         );
-
 
     const minimum =
         Number(
             document.getElementById(
                 "newMaterialMinimum"
-            ).value
+            )?.value
         );
-
 
     const expiry =
         document.getElementById(
             "newMaterialExpiry"
-        ).value || null;
-
+        )?.value || null;
 
     const error =
         document.getElementById(
             "materialFormError"
         );
 
-
     if (
         !lab ||
         !APP.labs.includes(lab)
     ) {
-
         return showError(
             error,
             "Please select a valid laboratory."
         );
     }
 
-
     if (
         quantity < 0 ||
         minimum < 0
     ) {
-
         return showError(
             error,
             "Quantity values cannot be negative."
         );
     }
 
-
     if (
         type === "consumable" &&
         !expiry
     ) {
-
         return showError(
             error,
             "Consumable materials need an expiry date."
         );
     }
 
-
     const materials =
         getMaterials();
 
-
     if (idBeingEdited) {
-
         const m =
             materials.find(
                 x => x.id === idBeingEdited
             );
 
-
         if (!m) return;
-
 
         const oldStock =
             stockValue(m);
 
-
         const newStock =
             quantity;
-
 
         m.name =
             document.getElementById(
                 "newMaterialName"
             ).value.trim();
 
-
         m.category =
             document.getElementById(
                 "newMaterialCategory"
             ).value.trim();
 
-
-        m.lab =
-            lab;
-
-
-        m.type =
-            type;
-
+        m.lab = lab;
+        m.type = type;
 
         m.unit =
             document.getElementById(
                 "newMaterialUnit"
             ).value.trim();
 
-
         m.minimumStock =
             minimum;
-
 
         m.expiryDate =
             type === "consumable"
                 ? expiry
                 : null;
 
-
         if (type === "reusable") {
-
             const issued =
                 Number(
                     m.issuedQuantity || 0
                 );
-
 
             const damaged =
                 Number(
                     m.damagedQuantity || 0
                 );
 
-
             m.availableQuantity =
                 newStock;
-
 
             m.totalQuantity =
                 newStock +
                 issued +
                 damaged;
 
-
             m.quantity =
                 m.availableQuantity;
-
         } else {
-
             m.quantity =
                 newStock;
-
 
             m.availableQuantity =
                 newStock;
 
-
             m.totalQuantity =
                 newStock;
-
 
             m.batches =
                 m.batches || [];
         }
 
-
         if (
             oldStock !==
             newStock
         ) {
-
-            addTransaction({
-
+            await addTransaction({
                 type:
                     "stock_adjustment",
 
@@ -2059,9 +1736,7 @@ function saveMaterialFromForm(event) {
                     "Manual stock adjustment while editing material"
             });
         }
-
     } else {
-
         const prefix =
             lab === "physics"
                 ? "PHY"
@@ -2069,39 +1744,32 @@ function saveMaterialFromForm(event) {
                     ? "CHE"
                     : "BIO";
 
-
         const newId =
             generateId(prefix);
 
-
         const m = {
-
-            id:
-                newId,
+            id: newId,
 
             name:
                 document.getElementById(
                     "newMaterialName"
                 ).value.trim(),
 
-            lab:
-                lab,
+            lab,
 
             category:
                 document.getElementById(
                     "newMaterialCategory"
                 ).value.trim(),
 
-            type:
-                type,
+            type,
 
             unit:
                 document.getElementById(
                     "newMaterialUnit"
                 ).value.trim(),
 
-            quantity:
-                quantity,
+            quantity,
 
             totalQuantity:
                 quantity,
@@ -2127,16 +1795,12 @@ function saveMaterialFromForm(event) {
                 "active"
         };
 
-
         if (
             type ===
             "consumable"
         ) {
-
             m.batches = [
-
                 {
-
                     batchId:
                         `${newId}-B01`,
 
@@ -2152,118 +1816,89 @@ function saveMaterialFromForm(event) {
                     expiryDate:
                         expiry
                 }
-
             ];
         }
-
 
         materials.push(m);
     }
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
 
-
     closeAddMaterialForm();
 
-
     renderCurrentInventory();
-
 
     initDashboardIfVisible();
 }
 
-
-/* ============================================================
-   EDIT MATERIAL
-   ============================================================ */
-
 function editMaterial(id) {
-
     openAddMaterialForm(id);
 }
 
-
-/* ============================================================
-   DELETE MATERIAL
-   ============================================================ */
-
-function deleteMaterial(id) {
-
+async function deleteMaterial(id) {
     const materials =
         getMaterials();
-
 
     const m =
         materials.find(
             x => x.id === id
         );
 
-
     if (!m) return;
-
 
     if (
         !confirm(
             `Delete "${m.name}" from the inventory? This will hide the material from the inventory.`
         )
     ) {
-
         return;
     }
 
+    /*
+       We use a soft delete so historical
+       transactions remain connected to the
+       material.
+    */
 
-    m.status =
-        "deleted";
+    m.status = "deleted";
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
-
 
     if (
         location.pathname.endsWith(
             "material.html"
         )
     ) {
-
         window.location.href =
             `inventory.html?lab=${m.lab}`;
-
     } else {
-
         renderCurrentInventory();
     }
 }
 
-
 function initDashboardIfVisible() {
-
     if (
         location.pathname.endsWith(
             "dashboard.html"
         )
     ) {
-
         initDashboard();
     }
 }
-
 
 /* ============================================================
    MATERIAL DETAIL
    ============================================================ */
 
 function initMaterial() {
-
     const id =
         new URLSearchParams(
             location.search
         ).get("id");
-
 
     const material =
         getMaterials().find(
@@ -2272,85 +1907,79 @@ function initMaterial() {
                 m.status !== "deleted"
         );
 
-
-    if (!material) {
-
+    const container =
         document.getElementById(
             "materialDetailsContainer"
-        ).innerHTML = `
+        );
 
-            <div class="empty-state">
-
-                <h3>
-                    Material not found
-                </h3>
-
-                <p>
-                    The requested material does not exist.
-                </p>
-
-                <a
-                    class="card-action"
-                    href="dashboard.html"
-                >
-                    Return to Dashboard
-                </a>
-
-            </div>
-        `;
+    if (!material) {
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>Material not found</h3>
+                    <p>
+                        The requested material does not exist.
+                    </p>
+                    <a
+                        class="card-action"
+                        href="dashboard.html"
+                    >
+                        Return to Dashboard
+                    </a>
+                </div>
+            `;
+        }
 
         return;
     }
 
-
     document.title =
         `${material.name} - Lab Inventory`;
 
+    const title =
+        document.getElementById(
+            "materialPageTitle"
+        );
 
-    document.getElementById(
-        "materialPageTitle"
-    ).textContent =
-        material.name;
+    if (title) {
+        title.textContent =
+            material.name;
+    }
 
+    const back =
+        document.getElementById(
+            "backToInventory"
+        );
 
-    document.getElementById(
-        "backToInventory"
-    ).href =
-        `inventory.html?lab=${material.lab}`;
-
+    if (back) {
+        back.href =
+            `inventory.html?lab=${material.lab}`;
+    }
 
     setupMaterialForms(
         material
     );
-
 
     renderMaterialDetails(
         material
     );
 }
 
-
-/* ============================================================
-   MATERIAL DETAILS
-   ============================================================ */
-
 function renderMaterialDetails(
     material
 ) {
-
     const container =
         document.getElementById(
             "materialDetailsContainer"
         );
 
+    if (!container) return;
 
     const stock =
         stockValue(material);
 
-
     const low =
         isLowStock(material);
-
 
     const transactions =
         getTransactions()
@@ -2362,18 +1991,13 @@ function renderMaterialDetails(
             .slice(-8)
             .reverse();
 
-
-    let actionButtons =
-        "";
-
+    let actionButtons = "";
 
     if (
         material.type ===
         "reusable"
     ) {
-
         actionButtons = `
-
             <button
                 class="primary-button"
                 onclick="openIssueModal()"
@@ -2395,11 +2019,8 @@ function renderMaterialDetails(
                 Damage Report
             </button>
         `;
-
     } else {
-
         actionButtons = `
-
             <button
                 class="primary-button"
                 onclick="openUsageModal()"
@@ -2430,25 +2051,15 @@ function renderMaterialDetails(
         `;
     }
 
-
     const batchHTML =
         material.type === "consumable" &&
         material.batches?.length
-
             ? `
-
                 <div class="panel mt-20">
 
                     <div class="section-heading">
-
-                        <p>
-                            Stock Batches
-                        </p>
-
-                        <h2>
-                            Expiry Tracking
-                        </h2>
-
+                        <p>Stock Batches</p>
+                        <h2>Expiry Tracking</h2>
                     </div>
 
                     <div class="table-container">
@@ -2456,31 +2067,15 @@ function renderMaterialDetails(
                         <table>
 
                             <thead>
-
                                 <tr>
-
-                                    <th>
-                                        Batch
-                                    </th>
-
-                                    <th>
-                                        Added
-                                    </th>
-
-                                    <th>
-                                        Remaining
-                                    </th>
-
-                                    <th>
-                                        Expiry
-                                    </th>
-
+                                    <th>Batch</th>
+                                    <th>Added</th>
+                                    <th>Remaining</th>
+                                    <th>Expiry</th>
                                 </tr>
-
                             </thead>
 
                             <tbody>
-
                                 ${
                                     material.batches
                                         .filter(
@@ -2491,7 +2086,6 @@ function renderMaterialDetails(
                                         )
                                         .map(
                                             b => `
-
                                                 <tr>
 
                                                     <td>
@@ -2522,13 +2116,10 @@ function renderMaterialDetails(
                                                     </td>
 
                                                 </tr>
-
                                             `
                                         )
                                         .join("")
-
                                     ||
-
                                     `
                                         <tr>
                                             <td colspan="4">
@@ -2537,7 +2128,6 @@ function renderMaterialDetails(
                                         </tr>
                                     `
                                 }
-
                             </tbody>
 
                         </table>
@@ -2546,12 +2136,9 @@ function renderMaterialDetails(
 
                 </div>
             `
-
             : "";
 
-
     container.innerHTML = `
-
         <section class="material-details-card">
 
             <div class="detail-header">
@@ -2559,41 +2146,32 @@ function renderMaterialDetails(
                 <div>
 
                     <span class="type-badge">
-
                         ${escapeHTML(
                             typeName(
                                 material.type
                             )
                         )}
-
                     </span>
 
                     <h2>
-
                         ${escapeHTML(
                             material.name
                         )}
-
                     </h2>
 
                     <p>
-
                         ${escapeHTML(
                             material.category
                         )}
-
                         ·
-
                         ${escapeHTML(
                             labName(
                                 material.lab
                             )
                         )}
-
                     </p>
 
                 </div>
-
 
                 <div class="detail-header-actions">
 
@@ -2617,297 +2195,174 @@ function renderMaterialDetails(
 
             </div>
 
-
             <div class="details-grid">
 
                 <div class="detail-item">
-
-                    <span>
-                        Material ID
-                    </span>
-
+                    <span>Material ID</span>
                     <strong>
                         ${escapeHTML(
                             material.id
                         )}
                     </strong>
-
                 </div>
 
-
                 <div class="detail-item">
-
-                    <span>
-                        Unit
-                    </span>
-
+                    <span>Unit</span>
                     <strong>
                         ${escapeHTML(
                             material.unit
                         )}
                     </strong>
-
                 </div>
 
-
                 <div class="detail-item">
-
-                    <span>
-                        Available
-                    </span>
-
+                    <span>Available</span>
                     <strong>
-
                         ${number(stock)}
-
                         ${escapeHTML(
                             material.unit
                         )}
-
                     </strong>
-
                 </div>
 
-
                 <div class="detail-item">
-
-                    <span>
-                        Minimum Stock
-                    </span>
-
+                    <span>Minimum Stock</span>
                     <strong>
-
                         ${number(
                             material.minimumStock
                         )}
-
                         ${escapeHTML(
                             material.unit
                         )}
-
                     </strong>
-
                 </div>
 
-
                 <div class="detail-item">
-
-                    <span>
-                        Stock Status
-                    </span>
-
-                    <strong
-                        class="${
-                            low
-                                ? "text-danger"
-                                : "text-success"
-                        }"
-                    >
-
+                    <span>Stock Status</span>
+                    <strong class="${
+                        low
+                            ? "text-danger"
+                            : "text-success"
+                    }">
                         ${
                             low
                                 ? "Low Stock"
                                 : "Healthy"
                         }
-
                     </strong>
-
                 </div>
-
 
                 ${
                     material.type ===
                     "reusable"
-
                         ? `
-
                             <div class="detail-item">
-
-                                <span>
-                                    Total Quantity
-                                </span>
-
+                                <span>Total Quantity</span>
                                 <strong>
-
                                     ${number(
                                         material.totalQuantity
                                     )}
-
                                     ${escapeHTML(
                                         material.unit
                                     )}
-
                                 </strong>
-
                             </div>
 
-
                             <div class="detail-item">
-
-                                <span>
-                                    Currently Issued
-                                </span>
-
+                                <span>Currently Issued</span>
                                 <strong>
-
                                     ${number(
                                         material.issuedQuantity
                                     )}
-
                                     ${escapeHTML(
                                         material.unit
                                     )}
-
                                 </strong>
-
                             </div>
 
-
                             <div class="detail-item">
-
-                                <span>
-                                    Damaged
-                                </span>
-
+                                <span>Damaged</span>
                                 <strong>
-
                                     ${number(
                                         material.damagedQuantity
                                     )}
-
                                     ${escapeHTML(
                                         material.unit
                                     )}
-
                                 </strong>
-
                             </div>
-
                         `
-
                         : `
-
                             <div class="detail-item">
-
-                                <span>
-                                    Expiry
-                                </span>
-
+                                <span>Expiry</span>
                                 <strong>
-
                                     ${formatDate(
                                         material.expiryDate
                                     )}
-
                                 </strong>
-
                             </div>
-
                         `
                 }
 
             </div>
 
-
             <div class="material-actions">
-
                 ${actionButtons}
-
             </div>
 
         </section>
 
-
         ${batchHTML}
-
 
         <section class="panel mt-20">
 
             <div class="section-heading">
-
-                <p>
-                    History
-                </p>
-
-                <h2>
-                    Recent Activity
-                </h2>
-
+                <p>History</p>
+                <h2>Recent Activity</h2>
             </div>
-
 
             <div class="table-container">
 
                 <table>
 
                     <thead>
-
                         <tr>
-
-                            <th>
-                                Date
-                            </th>
-
-                            <th>
-                                Activity
-                            </th>
-
-                            <th>
-                                Qty
-                            </th>
-
-                            <th>
-                                Teacher
-                            </th>
-
-                            <th>
-                                Status
-                            </th>
-
-                            <th>
-                                Remarks
-                            </th>
-
+                            <th>Date</th>
+                            <th>Activity</th>
+                            <th>Qty</th>
+                            <th>Teacher</th>
+                            <th>Status</th>
+                            <th>Remarks</th>
                         </tr>
-
                     </thead>
-
 
                     <tbody>
 
                         ${
                             transactions.length
-
                                 ? transactions
                                     .map(
                                         t => `
-
                                             <tr>
 
                                                 <td>
-
                                                     ${formatDate(
                                                         t.date
                                                     )}
-
                                                     ${escapeHTML(
                                                         t.time || ""
                                                     )}
-
                                                 </td>
 
                                                 <td>
-
                                                     ${escapeHTML(
                                                         activityLabel(
                                                             t.type
                                                         )
                                                     )}
-
                                                 </td>
 
                                                 <td>
-
                                                     ${
                                                         t.quantity != null
                                                             ? number(
@@ -2915,54 +2370,39 @@ function renderMaterialDetails(
                                                             )
                                                             : "—"
                                                     }
-
                                                 </td>
 
                                                 <td>
-
                                                     ${escapeHTML(
                                                         t.teacher ||
                                                         "—"
                                                     )}
-
                                                 </td>
 
                                                 <td>
-
                                                     ${escapeHTML(
                                                         t.status ||
                                                         "Completed"
                                                     )}
-
                                                 </td>
 
                                                 <td>
-
                                                     ${escapeHTML(
                                                         t.remarks ||
                                                         "—"
                                                     )}
-
                                                 </td>
 
                                             </tr>
-
                                         `
                                     )
                                     .join("")
-
                                 : `
-
                                     <tr>
-
                                         <td colspan="6">
-
                                             No activity recorded yet.
-
                                         </td>
-
                                     </tr>
-
                                 `
                         }
 
@@ -2976,18 +2416,11 @@ function renderMaterialDetails(
     `;
 }
 
-
-/* ============================================================
-   CURRENT MATERIAL
-   ============================================================ */
-
 function currentMaterial() {
-
     const id =
         new URLSearchParams(
             location.search
         ).get("id");
-
 
     return getMaterials().find(
         m =>
@@ -2996,26 +2429,17 @@ function currentMaterial() {
     );
 }
 
-
-/* ============================================================
-   EDIT FROM DETAILS
-   ============================================================ */
-
 function editMaterialFromDetails() {
-
     const m =
         currentMaterial();
 
-
     if (!m) return;
-
 
     window.location.href =
         `inventory.html?lab=${m.lab}&edit=${encodeURIComponent(
             m.id
         )}`;
 }
-
 
 /* ============================================================
    MATERIAL MODALS
@@ -3024,7 +2448,6 @@ function editMaterialFromDetails() {
 function setupMaterialForms(
     material
 ) {
-
     const dateFields = [
         "issueDate",
         "returnDate",
@@ -3033,24 +2456,15 @@ function setupMaterialForms(
         "damageDate"
     ];
 
+    dateFields.forEach(id => {
+        const el =
+            document.getElementById(id);
 
-    dateFields.forEach(
-        id => {
-
-            const el =
-                document.getElementById(
-                    id
-                );
-
-
-            if (el) {
-
-                el.value =
-                    todayISO();
-            }
+        if (el) {
+            el.value =
+                todayISO();
         }
-    );
-
+    });
 
     const timeFields = [
         "issueTime",
@@ -3058,40 +2472,28 @@ function setupMaterialForms(
         "damageTime"
     ];
 
+    timeFields.forEach(id => {
+        const el =
+            document.getElementById(id);
 
-    timeFields.forEach(
-        id => {
-
-            const el =
-                document.getElementById(
-                    id
-                );
-
-
-            if (el) {
-
-                el.value =
-                    timeNow();
-            }
+        if (el) {
+            el.value =
+                timeNow();
         }
-    );
-
+    });
 
     const expected =
         document.getElementById(
             "expectedReturnDate"
         );
 
-
     if (expected) {
-
         expected.value =
             addDays(
                 todayISO(),
                 3
             );
     }
-
 
     document
         .getElementById(
@@ -3102,7 +2504,6 @@ function setupMaterialForms(
             submitIssue
         );
 
-
     document
         .getElementById(
             "returnForm"
@@ -3111,7 +2512,6 @@ function setupMaterialForms(
             "submit",
             submitReturn
         );
-
 
     document
         .getElementById(
@@ -3122,7 +2522,6 @@ function setupMaterialForms(
             submitDamage
         );
 
-
     document
         .getElementById(
             "usageForm"
@@ -3131,7 +2530,6 @@ function setupMaterialForms(
             "submit",
             submitUsage
         );
-
 
     document
         .getElementById(
@@ -3143,9 +2541,7 @@ function setupMaterialForms(
         );
 }
 
-
 function openModal(id) {
-
     document
         .getElementById(id)
         ?.classList.remove(
@@ -3153,9 +2549,7 @@ function openModal(id) {
         );
 }
 
-
 function closeModal(id) {
-
     document
         .getElementById(id)
         ?.classList.add(
@@ -3163,62 +2557,37 @@ function closeModal(id) {
         );
 }
 
-
 function openIssueModal() {
-
-    openModal(
-        "issueModal"
-    );
+    openModal("issueModal");
 }
-
 
 function openReturnModal() {
-
-    openModal(
-        "returnModal"
-    );
+    openModal("returnModal");
 }
-
 
 function openDamageModal() {
-
-    openModal(
-        "damageModal"
-    );
+    openModal("damageModal");
 }
-
 
 function openUsageModal() {
-
-    openModal(
-        "usageModal"
-    );
+    openModal("usageModal");
 }
-
 
 function openAddStockModal() {
-
-    openModal(
-        "addStockModal"
-    );
+    openModal("addStockModal");
 }
 
-
 /* ============================================================
-   ISSUE / USAGE FOR REUSABLE ITEMS
+   REUSABLE EQUIPMENT - ISSUE
    ============================================================ */
 
-function submitIssue(event) {
-
+async function submitIssue(event) {
     event.preventDefault();
-
 
     const m =
         currentMaterial();
 
-
     if (!m) return;
-
 
     const qty =
         Number(
@@ -3227,22 +2596,18 @@ function submitIssue(event) {
             ).value
         );
 
-
     const teacher =
         document.getElementById(
             "issueTeacher"
         ).value.trim();
 
-
     const available =
         stockValue(m);
-
 
     if (
         qty <= 0 ||
         qty > available
     ) {
-
         return showError(
             document.getElementById(
                 "issueError"
@@ -3253,38 +2618,25 @@ function submitIssue(event) {
         );
     }
 
-
     const materials =
         getMaterials();
-
 
     const target =
         materials.find(
             x => x.id === m.id
         );
 
-
-    target.availableQuantity -=
-        qty;
-
-
-    target.issuedQuantity +=
-        qty;
-
-
+    target.availableQuantity -= qty;
+    target.issuedQuantity += qty;
     target.quantity =
         target.availableQuantity;
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
 
-
-    addTransaction({
-
-        type:
-            "issue",
+    await addTransaction({
+        type: "issue",
 
         materialId:
             m.id,
@@ -3321,31 +2673,24 @@ function submitIssue(event) {
             ).value.trim()
     });
 
-
     closeModal(
         "issueModal"
     );
 
-
     initMaterial();
 }
 
-
 /* ============================================================
-   RETURN
+   REUSABLE EQUIPMENT - RETURN
    ============================================================ */
 
-function submitReturn(event) {
-
+async function submitReturn(event) {
     event.preventDefault();
-
 
     const m =
         currentMaterial();
 
-
     if (!m) return;
-
 
     const qty =
         Number(
@@ -3354,12 +2699,10 @@ function submitReturn(event) {
             ).value
         );
 
-
     const teacher =
         document.getElementById(
             "returnTeacher"
         ).value.trim();
-
 
     if (
         qty <= 0 ||
@@ -3368,7 +2711,6 @@ function submitReturn(event) {
                 m.issuedQuantity || 0
             )
     ) {
-
         return showError(
             document.getElementById(
                 "returnError"
@@ -3379,38 +2721,29 @@ function submitReturn(event) {
         );
     }
 
-
     const materials =
         getMaterials();
-
 
     const target =
         materials.find(
             x => x.id === m.id
         );
 
-
     target.availableQuantity +=
         qty;
-
 
     target.issuedQuantity -=
         qty;
 
-
     target.quantity =
         target.availableQuantity;
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
 
-
-    addTransaction({
-
-        type:
-            "return",
+    await addTransaction({
+        type: "return",
 
         materialId:
             m.id,
@@ -3442,95 +2775,73 @@ function submitReturn(event) {
             ).value.trim()
     });
 
+    /*
+       Mark the oldest matching open
+       issue as returned.
+    */
 
     const transactions =
         getTransactions();
 
-
     let remaining =
         qty;
 
-
     for (
         let i = 0;
-        i <
-            transactions.length &&
-            remaining > 0;
+        i < transactions.length &&
+        remaining > 0;
         i++
     ) {
-
         const t =
             transactions[i];
 
-
         if (
-            t.materialId ===
-                m.id &&
-            t.type ===
-                "issue" &&
-            t.status ===
-                "Not Returned"
+            t.materialId === m.id &&
+            t.type === "issue" &&
+            t.status === "Not Returned"
         ) {
-
             const used =
                 Math.min(
-                    Number(
-                        t.quantity
-                    ),
+                    Number(t.quantity),
                     remaining
                 );
 
-
             t.quantity =
-                Number(
-                    t.quantity
-                ) - used;
+                Number(t.quantity) -
+                used;
 
-
-            if (
-                t.quantity <= 0
-            ) {
-
+            if (t.quantity <= 0) {
                 t.status =
                     "Returned";
             }
-
 
             remaining -=
                 used;
         }
     }
 
-
-    saveTransactions(
+    await saveTransactions(
         transactions
     );
-
 
     closeModal(
         "returnModal"
     );
 
-
     initMaterial();
 }
-
 
 /* ============================================================
    DAMAGE REPORT
    ============================================================ */
 
-function submitDamage(event) {
-
+async function submitDamage(event) {
     event.preventDefault();
-
 
     const m =
         currentMaterial();
 
-
     if (!m) return;
-
 
     const qty =
         Number(
@@ -3539,16 +2850,13 @@ function submitDamage(event) {
             ).value
         );
 
-
     const available =
         stockValue(m);
-
 
     if (
         qty <= 0 ||
         qty > available
     ) {
-
         return showError(
             document.getElementById(
                 "damageError"
@@ -3559,22 +2867,18 @@ function submitDamage(event) {
         );
     }
 
-
     const materials =
         getMaterials();
-
 
     const target =
         materials.find(
             x => x.id === m.id
         );
 
-
     if (
         target.type ===
         "reusable"
     ) {
-
         target.availableQuantity -=
             qty;
 
@@ -3586,9 +2890,7 @@ function submitDamage(event) {
 
         target.quantity =
             target.availableQuantity;
-
     } else {
-
         target.quantity -=
             qty;
 
@@ -3597,7 +2899,8 @@ function submitDamage(event) {
 
         target.damagedQuantity =
             Number(
-                target.damagedQuantity || 0
+                target.damagedQuantity ||
+                0
             ) + qty;
 
         reduceBatches(
@@ -3606,16 +2909,12 @@ function submitDamage(event) {
         );
     }
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
 
-
-    addTransaction({
-
-        type:
-            "damage",
+    await addTransaction({
+        type: "damage",
 
         materialId:
             m.id,
@@ -3650,31 +2949,24 @@ function submitDamage(event) {
             ).value.trim()
     });
 
-
     closeModal(
         "damageModal"
     );
 
-
     initMaterial();
 }
 
-
 /* ============================================================
-   CONSUMABLE USAGE
+   CONSUMABLE - USAGE
    ============================================================ */
 
-function submitUsage(event) {
-
+async function submitUsage(event) {
     event.preventDefault();
-
 
     const m =
         currentMaterial();
 
-
     if (!m) return;
-
 
     const qty =
         Number(
@@ -3683,12 +2975,10 @@ function submitUsage(event) {
             ).value
         );
 
-
     if (
         qty <= 0 ||
         qty > stockValue(m)
     ) {
-
         return showError(
             document.getElementById(
                 "usageError"
@@ -3699,40 +2989,31 @@ function submitUsage(event) {
         );
     }
 
-
     const materials =
         getMaterials();
-
 
     const target =
         materials.find(
             x => x.id === m.id
         );
 
-
     target.quantity -=
         qty;
 
-
     target.availableQuantity =
         target.quantity;
-
 
     reduceBatches(
         target,
         qty
     );
 
-
-    saveMaterials(
+    await saveMaterials(
         materials
     );
 
-
-    addTransaction({
-
-        type:
-            "usage",
+    await addTransaction({
+        type: "usage",
 
         materialId:
             m.id,
@@ -3765,11 +3046,1355 @@ function submitUsage(event) {
             ).value.trim()
     });
 
-
     closeModal(
         "usageModal"
     );
 
+    initMaterial();
+}
+
+/* ============================================================
+   CONSUMABLE - ADD STOCK
+   ============================================================ */
+
+async function submitAddStock(event) {
+    event.preventDefault();
+
+    const m =
+        currentMaterial();
+
+    if (!m) return;
+
+    const qty =
+        Number(
+            document.getElementById(
+                "stockAddQuantity"
+            ).value
+        );
+
+    const expiry =
+        document.getElementById(
+            "stockExpiry"
+        ).value;
+
+    if (
+        qty <= 0 ||
+        !expiry
+    ) {
+        return showError(
+            document.getElementById(
+                "stockAddError"
+            ),
+            "Enter a quantity and expiry date."
+        );
+    }
+
+    const materials =
+        getMaterials();
+
+    const target =
+        materials.find(
+            x => x.id === m.id
+        );
+
+    target.quantity +=
+        qty;
+
+    target.availableQuantity =
+        target.quantity;
+
+    target.totalQuantity =
+        target.quantity;
+
+    target.batches =
+        target.batches || [];
+
+    target.batches.push({
+        batchId:
+            `${target.id}-B${String(
+                target.batches.length + 1
+            ).padStart(2, "0")}`,
+
+        dateAdded:
+            document.getElementById(
+                "stockAddDate"
+            ).value,
+
+        quantityAdded:
+            qty,
+
+        quantityRemaining:
+            qty,
+
+        expiryDate:
+            expiry
+    });
+
+    target.batches.sort(
+        (a, b) =>
+            String(a.expiryDate)
+                .localeCompare(
+                    String(
+                        b.expiryDate
+                    )
+                )
+    );
+
+    target.expiryDate =
+        target.batches[0]
+            ?.expiryDate ||
+        expiry;
+
+    await saveMaterials(
+        materials
+    );
+
+    await addTransaction({
+        type:
+            "add_stock",
+
+        materialId:
+            m.id,
+
+        lab:
+            m.lab,
+
+        date:
+            document.getElementById(
+                "stockAddDate"
+            ).value,
+
+        time:
+            timeNow(),
+
+        teacher:
+            "Lab Assistant",
+
+        quantity:
+            qty,
+
+        status:
+            "Added",
+
+        remarks:
+            document.getElementById(
+                "stockRemarks"
+            ).value.trim()
+    });
+
+    closeModal(
+        "addStockModal"
+    );
 
     initMaterial();
 }
+
+function reduceBatches(
+    material,
+    quantity
+) {
+    if (
+        !Array.isArray(
+            material.batches
+        )
+    ) {
+        return;
+    }
+
+    let remaining =
+        quantity;
+
+    /*
+       FEFO:
+       First Expiry, First Out.
+    */
+
+    material.batches.sort(
+        (a, b) =>
+            String(a.expiryDate)
+                .localeCompare(
+                    String(
+                        b.expiryDate
+                    )
+                )
+    );
+
+    for (
+        const batch of
+        material.batches
+    ) {
+        if (
+            remaining <= 0
+        ) {
+            break;
+        }
+
+        const take =
+            Math.min(
+                Number(
+                    batch.quantityRemaining ||
+                    0
+                ),
+                remaining
+            );
+
+        batch.quantityRemaining -=
+            take;
+
+        remaining -=
+            take;
+    }
+
+    material.batches =
+        material.batches.filter(
+            b =>
+                Number(
+                    b.quantityRemaining
+                ) > 0
+        );
+
+    material.expiryDate =
+        material.batches[0]
+            ?.expiryDate ||
+        null;
+}
+
+/* ============================================================
+   TRANSACTIONS
+   ============================================================ */
+
+async function addTransaction(
+    transaction
+) {
+    const transactions =
+        getTransactions();
+
+    transactions.push({
+        id:
+            generateId("TX"),
+
+        createdAt:
+            new Date()
+                .toISOString(),
+
+        ...transaction
+    });
+
+    await saveTransactions(
+        transactions
+    );
+}
+
+function activityLabel(type) {
+    const labels = {
+        usage:
+            "Consumable Used",
+
+        issue:
+            "Equipment Issued",
+
+        return:
+            "Equipment Returned",
+
+        damage:
+            "Damage Report",
+
+        add_stock:
+            "Stock Added",
+
+        stock_adjustment:
+            "Stock Adjusted"
+    };
+
+    return (
+        labels[type] ||
+        type
+    );
+}
+
+/* ============================================================
+   ORDERS
+   ============================================================ */
+
+function initOrders() {
+    const date =
+        document.getElementById(
+            "orderDate"
+        );
+
+    if (date) {
+        date.value =
+            todayISO();
+    }
+
+    populateOrderMaterials();
+
+    renderOrders();
+}
+
+function populateOrderMaterials() {
+    const select =
+        document.getElementById(
+            "orderMaterial"
+        );
+
+    if (!select) return;
+
+    const consumables =
+        getMaterials().filter(
+            m =>
+                m.type === "consumable" &&
+                m.status !== "deleted"
+        );
+
+    select.innerHTML =
+        consumables.length
+            ? consumables
+                .map(
+                    m => `
+                        <option
+                            value="${escapeHTML(
+                                m.id
+                            )}"
+                        >
+                            ${escapeHTML(
+                                m.name
+                            )}
+                            (${escapeHTML(
+                                labName(
+                                    m.lab
+                                )
+                            )})
+                        </option>
+                    `
+                )
+                .join("")
+            : `
+                <option value="">
+                    No consumable materials
+                </option>
+            `;
+}
+
+async function createOrder() {
+    const materialId =
+        document.getElementById(
+            "orderMaterial"
+        )?.value;
+
+    const quantity =
+        Number(
+            document.getElementById(
+                "orderQuantity"
+            )?.value
+        );
+
+    const date =
+        document.getElementById(
+            "orderDate"
+        )?.value ||
+        todayISO();
+
+    const error =
+        document.getElementById(
+            "orderFormError"
+        );
+
+    if (
+        !materialId ||
+        quantity <= 0
+    ) {
+        return showError(
+            error,
+            "Select a material and enter a quantity."
+        );
+    }
+
+    const material =
+        getMaterials().find(
+            m =>
+                m.id ===
+                materialId
+        );
+
+    if (!material) {
+        return showError(
+            error,
+            "Material not found."
+        );
+    }
+
+    const orders =
+        getOrders();
+
+    orders.push({
+        id:
+            generateId("ORD"),
+
+        materialId,
+
+        quantity,
+
+        orderDate:
+            date,
+
+        status:
+            "To be ordered",
+
+        receivedQty:
+            0,
+
+        receivedDate:
+            null
+    });
+
+    await saveOrders(
+        orders
+    );
+
+    const quantityInput =
+        document.getElementById(
+            "orderQuantity"
+        );
+
+    if (quantityInput) {
+        quantityInput.value =
+            "";
+    }
+
+    clearError(
+        error
+    );
+
+    renderOrders();
+}
+
+function renderOrders() {
+    const body =
+        document.getElementById(
+            "ordersTableBody"
+        );
+
+    if (!body) return;
+
+    const materials =
+        getMaterials();
+
+    const orders =
+        getOrders()
+            .slice()
+            .reverse();
+
+    body.innerHTML =
+        orders.length
+            ? orders
+                .map(order => {
+                    const material =
+                        materials.find(
+                            m =>
+                                m.id ===
+                                order.materialId
+                        );
+
+                    return `
+                        <tr>
+
+                            <td>
+                                ${escapeHTML(
+                                    order.id
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    material?.name ||
+                                    "Deleted material"
+                                )}
+                            </td>
+
+                            <td>
+                                ${number(
+                                    order.quantity
+                                )}
+                                ${escapeHTML(
+                                    material?.unit ||
+                                    ""
+                                )}
+                            </td>
+
+                            <td>
+                                ${formatDate(
+                                    order.orderDate
+                                )}
+                            </td>
+
+                            <td>
+                                <span
+                                    class="order-status status-${order.status
+                                        .toLowerCase()
+                                        .replaceAll(
+                                            " ",
+                                            "-"
+                                        )}"
+                                >
+                                    ${escapeHTML(
+                                        order.status
+                                    )}
+                                </span>
+                            </td>
+
+                            <td>
+                                ${
+                                    order.receivedDate
+                                        ? formatDate(
+                                            order.receivedDate
+                                        )
+                                        : "—"
+                                }
+                            </td>
+
+                            <td>
+
+                                ${
+                                    order.status !==
+                                    "Received"
+                                        ? `
+                                            <select
+                                                class="status-select"
+                                                onchange="changeOrderStatus('${escapeHTML(
+                                                    order.id
+                                                )}', this.value)"
+                                            >
+
+                                                <option
+                                                    ${
+                                                        order.status ===
+                                                        "To be ordered"
+                                                            ? "selected"
+                                                            : ""
+                                                    }
+                                                >
+                                                    To be ordered
+                                                </option>
+
+                                                <option
+                                                    ${
+                                                        order.status ===
+                                                        "Ordered"
+                                                            ? "selected"
+                                                            : ""
+                                                    }
+                                                >
+                                                    Ordered
+                                                </option>
+
+                                                <option
+                                                    ${
+                                                        order.status ===
+                                                        "Received"
+                                                            ? "selected"
+                                                            : ""
+                                                    }
+                                                >
+                                                    Received
+                                                </option>
+
+                                            </select>
+                                        `
+                                        : `
+                                            <span class="text-success">
+                                                Completed
+                                            </span>
+                                        `
+                                }
+
+                            </td>
+
+                        </tr>
+                    `;
+                })
+                .join("")
+            : `
+                <tr>
+                    <td colspan="7">
+                        No orders recorded.
+                    </td>
+                </tr>
+            `;
+}
+
+async function changeOrderStatus(
+    orderId,
+    status
+) {
+    const orders =
+        getOrders();
+
+    const order =
+        orders.find(
+            o =>
+                o.id ===
+                orderId
+        );
+
+    if (!order) return;
+
+    if (
+        order.status ===
+        "Received"
+    ) {
+        return;
+    }
+
+    if (
+        status ===
+        "Received"
+    ) {
+        await receiveOrder(
+            order
+        );
+    } else {
+        order.status =
+            status;
+
+        await saveOrders(
+            orders
+        );
+    }
+
+    renderOrders();
+}
+
+async function receiveOrder(
+    order
+) {
+    const materials =
+        getMaterials();
+
+    const material =
+        materials.find(
+            m =>
+                m.id ===
+                order.materialId
+        );
+
+    if (!material) {
+        alert(
+            "The material for this order could not be found."
+        );
+
+        return;
+    }
+
+    /*
+       For chemistry/consumables, ask for
+       the expiry date of the new batch.
+    */
+
+    let expiry = null;
+
+    if (
+        material.type ===
+        "consumable"
+    ) {
+        expiry =
+            prompt(
+                "Enter the expiry date for the received batch (YYYY-MM-DD):",
+                material.expiryDate ||
+                ""
+            );
+
+        if (!expiry) {
+            alert(
+                "Order was not received because an expiry date was not entered."
+            );
+
+            return;
+        }
+    }
+
+    material.quantity +=
+        Number(order.quantity);
+
+    material.availableQuantity =
+        material.quantity;
+
+    material.totalQuantity =
+        material.quantity;
+
+    if (
+        material.type ===
+        "consumable"
+    ) {
+        material.batches =
+            material.batches ||
+            [];
+
+        material.batches.push({
+            batchId:
+                `${material.id}-B${String(
+                    material.batches.length +
+                    1
+                ).padStart(
+                    2,
+                    "0"
+                )}`,
+
+            dateAdded:
+                todayISO(),
+
+            quantityAdded:
+                Number(
+                    order.quantity
+                ),
+
+            quantityRemaining:
+                Number(
+                    order.quantity
+                ),
+
+            expiryDate:
+                expiry
+        });
+
+        material.batches.sort(
+            (a, b) =>
+                String(
+                    a.expiryDate
+                ).localeCompare(
+                    String(
+                        b.expiryDate
+                    )
+                )
+        );
+
+        material.expiryDate =
+            material.batches[0]
+                ?.expiryDate ||
+            expiry;
+    }
+
+    await saveMaterials(
+        materials
+    );
+
+    order.status =
+        "Received";
+
+    order.receivedQty =
+        Number(
+            order.quantity
+        );
+
+    order.receivedDate =
+        todayISO();
+
+    const orders =
+        getOrders();
+
+    const targetOrder =
+        orders.find(
+            o =>
+                o.id ===
+                order.id
+        );
+
+    if (targetOrder) {
+        Object.assign(
+            targetOrder,
+            order
+        );
+    }
+
+    await saveOrders(
+        orders
+    );
+
+    await addTransaction({
+        type:
+            "add_stock",
+
+        materialId:
+            material.id,
+
+        lab:
+            material.lab,
+
+        date:
+            todayISO(),
+
+        time:
+            timeNow(),
+
+        teacher:
+            "Lab Assistant",
+
+        quantity:
+            Number(
+                order.quantity
+            ),
+
+        status:
+            "Order Received",
+
+        remarks:
+            `Received order ${order.id}`
+    });
+}
+
+function openOrderForMaterial() {
+    const m =
+        currentMaterial();
+
+    if (!m) return;
+
+    window.location.href =
+        `orders.html?material=${encodeURIComponent(
+            m.id
+        )}`;
+}
+
+/* ============================================================
+   REPORTS
+   ============================================================ */
+
+function initReports() {
+    document
+        .getElementById(
+            "reportLabFilter"
+        )
+        ?.addEventListener(
+            "change",
+            renderReports
+        );
+
+    document
+        .getElementById(
+            "reportTypeFilter"
+        )
+        ?.addEventListener(
+            "change",
+            renderReports
+        );
+
+    const transactions =
+        getTransactions();
+
+    setText(
+        "reportTransactionCount",
+        transactions.length
+    );
+
+    setText(
+        "reportUsageCount",
+        transactions.filter(
+            t =>
+                t.type ===
+                "usage"
+        ).length
+    );
+
+    setText(
+        "reportDamageCount",
+        transactions.filter(
+            t =>
+                t.type ===
+                "damage"
+        ).length
+    );
+
+    setText(
+        "reportIssueCount",
+        transactions.filter(
+            t =>
+                t.type ===
+                "issue"
+        ).length
+    );
+
+    renderReports();
+}
+
+function renderReports() {
+    const body =
+        document.getElementById(
+            "reportsTableBody"
+        );
+
+    if (!body) return;
+
+    const labFilter =
+        document.getElementById(
+            "reportLabFilter"
+        )?.value ||
+        "all";
+
+    const typeFilter =
+        document.getElementById(
+            "reportTypeFilter"
+        )?.value ||
+        "all";
+
+    const materials =
+        getMaterials();
+
+    let transactions =
+        getTransactions()
+            .slice()
+            .reverse();
+
+    if (
+        labFilter !==
+        "all"
+    ) {
+        transactions =
+            transactions.filter(
+                t =>
+                    t.lab ===
+                    labFilter
+            );
+    }
+
+    if (
+        typeFilter !==
+        "all"
+    ) {
+        transactions =
+            transactions.filter(
+                t =>
+                    t.type ===
+                    typeFilter
+            );
+    }
+
+    body.innerHTML =
+        transactions.length
+            ? transactions
+                .map(t => {
+                    const m =
+                        materials.find(
+                            x =>
+                                x.id ===
+                                t.materialId
+                        );
+
+                    return `
+                        <tr>
+
+                            <td>
+                                ${formatDate(
+                                    t.date
+                                )}
+                                ${escapeHTML(
+                                    t.time || ""
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    m?.name ||
+                                    t.materialId
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    labName(
+                                        t.lab
+                                    )
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    activityLabel(
+                                        t.type
+                                    )
+                                )}
+                            </td>
+
+                            <td>
+                                ${
+                                    t.quantity !=
+                                    null
+                                        ? number(
+                                            t.quantity
+                                        )
+                                        : "—"
+                                }
+                                ${escapeHTML(
+                                    m?.unit ||
+                                    ""
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    t.teacher ||
+                                    "—"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    t.remarks ||
+                                    "—"
+                                )}
+                            </td>
+
+                        </tr>
+                    `;
+                })
+                .join("")
+            : `
+                <tr>
+                    <td colspan="7">
+                        No transactions match the selected filters.
+                    </td>
+                </tr>
+            `;
+}
+
+/* ============================================================
+   NOTIFICATIONS
+   ============================================================ */
+
+function buildNotifications() {
+    const materials =
+        getMaterials();
+
+    const transactions =
+        getTransactions();
+
+    const orders =
+        getOrders();
+
+    const notifications = [];
+
+    materials.forEach(m => {
+        if (
+            isLowStock(m)
+        ) {
+            notifications.push({
+                level:
+                    "warning",
+
+                icon:
+                    "⚠️",
+
+                title:
+                    "Low stock",
+
+                text:
+                    `${m.name} has ${number(
+                        stockValue(m)
+                    )} ${m.unit} available; minimum is ${number(
+                        m.minimumStock
+                    )} ${m.unit}.`
+            });
+        }
+
+        if (
+            m.type ===
+            "consumable"
+        ) {
+            const days =
+                daysUntil(
+                    m.expiryDate
+                );
+
+            if (
+                days !== null &&
+                days < 0
+            ) {
+                notifications.push({
+                    level:
+                        "danger",
+
+                    icon:
+                        "🔴",
+
+                    title:
+                        "Expired chemical/material",
+
+                    text:
+                        `${m.name} expired on ${formatDate(
+                            m.expiryDate
+                        )}.`
+                });
+            } else if (
+                days !== null &&
+                days <= 30
+            ) {
+                notifications.push({
+                    level:
+                        "warning",
+
+                    icon:
+                        "⏳",
+
+                    title:
+                        "Expiry approaching",
+
+                    text:
+                        `${m.name} expires on ${formatDate(
+                            m.expiryDate
+                        )}.`
+                });
+            }
+        }
+    });
+
+    transactions
+        .filter(
+            t =>
+                t.type ===
+                    "issue" &&
+                t.status ===
+                    "Not Returned"
+        )
+        .forEach(t => {
+            if (
+                t.expectedReturnDate &&
+                t.expectedReturnDate <
+                    todayISO()
+            ) {
+                const m =
+                    materials.find(
+                        x =>
+                            x.id ===
+                            t.materialId
+                    );
+
+                notifications.push({
+                    level:
+                        "danger",
+
+                    icon:
+                        "🚨",
+
+                    title:
+                        "Equipment overdue",
+
+                    text:
+                        `${m?.name || t.materialId}: ${number(
+                            t.quantity
+                        )} ${m?.unit || ""} issued to ${
+                            t.teacher ||
+                            "teacher"
+                        } was due back on ${formatDate(
+                            t.expectedReturnDate
+                        )}.`
+                });
+            }
+        });
+
+    orders
+        .filter(
+            o =>
+                o.status ===
+                "Ordered"
+        )
+        .forEach(o => {
+            const m =
+                materials.find(
+                    x =>
+                        x.id ===
+                        o.materialId
+                );
+
+            notifications.push({
+                level:
+                    "info",
+
+                icon:
+                    "📦",
+
+                title:
+                    "Order awaiting receipt",
+
+                text:
+                    `${number(
+                        o.quantity
+                    )} ${m?.unit || ""} of ${
+                        m?.name ||
+                        o.materialId
+                    } is ordered but not yet received.`
+            });
+        });
+
+    return notifications;
+}
+
+function initNotifications() {
+    renderNotifications();
+}
+
+function renderNotifications() {
+    const container =
+        document.getElementById(
+            "notificationsContainer"
+        );
+
+    if (!container) return;
+
+    const notifications =
+        buildNotifications();
+
+    container.innerHTML =
+        notifications.length
+            ? notifications
+                .map(
+                    notificationHTML
+                )
+                .join("")
+            : emptyNotificationHTML();
+}
+
+function notificationHTML(n) {
+    return `
+        <article
+            class="notification-item notification-${n.level}"
+        >
+
+            <div class="notification-icon">
+                ${n.icon}
+            </div>
+
+            <div>
+
+                <strong>
+                    ${escapeHTML(
+                        n.title
+                    )}
+                </strong>
+
+                <p>
+                    ${escapeHTML(
+                        n.text
+                    )}
+                </p>
+
+            </div>
+
+        </article>
+    `;
+}
+
+function emptyNotificationHTML() {
+    return `
+        <div class="empty-state">
+
+            <div class="empty-state-icon">
+                ✓
+            </div>
+
+            <h3>
+                No active notifications
+            </h3>
+
+            <p>
+                Your inventory currently has no generated alerts.
+            </p>
+
+        </div>
+    `;
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+function showError(
+    element,
+    message
+) {
+    if (!element) return;
+
+    element.textContent =
+        message;
+
+    element.classList.remove(
+        "hidden"
+    );
+}
+
+function clearError(
+    idOrElement
+) {
+    const element =
+        typeof idOrElement ===
+        "string"
+            ? document.getElementById(
+                idOrElement
+            )
+            : idOrElement;
+
+    if (element) {
+        element.textContent =
+            "";
+
+        element.classList.add(
+            "hidden"
+        );
+    }
+}
+
+/* ============================================================
+   INVENTORY EDIT QUERY SUPPORT
+   ============================================================ */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
+        if (
+            location.pathname.endsWith(
+                "inventory.html"
+            )
+        ) {
+            const editId =
+                new URLSearchParams(
+                    location.search
+                ).get("edit");
+
+            if (editId) {
+                setTimeout(
+                    () =>
+                        openAddMaterialForm(
+                            editId
+                        ),
+                    50
+                );
+            }
+        }
+
+        if (
+            location.pathname.endsWith(
+                "orders.html"
+            )
+        ) {
+            const requestedMaterial =
+                new URLSearchParams(
+                    location.search
+                ).get("material");
+
+            if (requestedMaterial) {
+                setTimeout(
+                    () => {
+                        const select =
+                            document.getElementById(
+                                "orderMaterial"
+                            );
+
+                        if (select) {
+                            select.value =
+                                requestedMaterial;
+                        }
+                    },
+                    50
+                );
+            }
+        }
+    }
+);
