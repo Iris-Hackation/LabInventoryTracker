@@ -122,7 +122,11 @@
             <div class="form-group" id="newExpiryGroup">
                 <label for="newMaterialExpiry">Date of Expiry</label>
                 <input type="date" id="newMaterialExpiry">
-                <small>Required for consumable/perishable materials.</small>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="newMaterialExpiryIndefinite">
+                    <span>No expiry / Indefinite expiry</span>
+                </label>
+                <small>For chemicals, choose a date or select indefinite expiry.</small>
             </div>
 
             <p id="materialFormError" class="form-error hidden"></p>
@@ -134,12 +138,10 @@
         </form>
     </div>
 </div>
-
     <!-- Supabase client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="js/supabase.js"></script>
-
-    <!-- Application logic -->
     <script src="js/app.js"></script>
+
 </body>
 </html>
