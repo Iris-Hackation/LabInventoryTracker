@@ -1,24 +1,28 @@
 /* ============================================================
    SUPABASE CONNECTION
-   ------------------------------------------------------------
-   Browser-safe Supabase configuration.
    ============================================================ */
 
-const SUPABASE_URL = "https://taxairinmzoqgqgisuno.supabase.co";
+const SUPABASE_URL =
+    "https://taxairinmzoqgqgisuno.supabase.co";
 
 const SUPABASE_PUBLISHABLE_KEY =
     "sb_publishable_RmDBq_ArjjAz4bCOPlKjnA_uRIsIzn9";
 
 /*
- * Create the Supabase client once and expose it globally.
- *
- * IMPORTANT:
- * Do NOT use:
- *     const supabase = ...
- *
- * Using window.supabaseClient avoids a naming collision with
- * the Supabase CDN's global `window.supabase` object.
- */
+   The CDN creates window.supabase.
+
+   We create OUR client as window.supabaseClient
+   so there is no name conflict.
+*/
+
+if (
+    !window.supabase ||
+    typeof window.supabase.createClient !== "function"
+) {
+    throw new Error(
+        "Supabase library did not load. Check the Supabase CDN script."
+    );
+}
 
 window.supabaseClient = window.supabase.createClient(
     SUPABASE_URL,
@@ -31,3 +35,5 @@ window.supabaseClient = window.supabase.createClient(
         }
     }
 );
+
+console.log("Supabase connected successfully.");
